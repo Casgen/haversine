@@ -22,10 +22,18 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const timer_exe = b.addExecutable(.{
+        .name = "timer",
+        .root_source_file = b.path("src/main_timer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
     b.installArtifact(exe);
+    b.installArtifact(timer_exe);
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish

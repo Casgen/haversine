@@ -3,11 +3,20 @@ const haversine = @import("haversine/haversine.zig");
 const assertm = @import("assertf.zig").assertm;
 const assertf = @import("assertf.zig").assertf;
 const parser = @import("parser/json_parser.zig");
+const profiler = @import("profiler/profiler.zig");
 
 const PairsObj = struct { pairs: []haversine.Coordinates };
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer {
+        const leak_check = gpa.deinit();
+
+        if (leak_check == std.heap.Check.leak) {
+            _ = std.io.getStdErr().write("There have been some memory leaks!") catch {};
+        }
+    }
+
     const allocator = gpa.allocator();
 
     var args = try std.process.argsWithAllocator(allocator);
@@ -22,13 +31,18 @@ pub fn main() !void {
         return;
     }
 
+    try generate(allocator, &args, arg);
+}
+
+pub fn generate(allocator: std.mem.Allocator, args: *std.process.ArgIterator, seed: ?[]const u8) !void {
+
     const stdout = std.io.getStdOut().writer();
 
     // Get random seed argument
     var rand_seed: u64 = 718932478909;
 
-    if (arg != null) {
-        rand_seed = try std.fmt.parseInt(u64, arg.?, 0);
+    if (seed != null) {
+        rand_seed = try std.fmt.parseInt(u64, seed.?, 0);
     }
 
     // Get Count of pair inputs argument
@@ -79,6 +93,9 @@ pub fn main() !void {
     try json_stream.endObject();
 
     json_stream.deinit();
+
+    allocator.free(coords_array);
+
 }
 
 pub fn parse(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
@@ -87,6 +104,10 @@ pub fn parse(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void
 
     assertm(input_json != null, "No input file has been provided!");
 
+    profiler.beginProfiling();
+
+    profiler.beginTimer();
+
     const file_path: []const u8 = try std.fs.cwd().realpathAlloc(allocator, input_json.?);
 
     const file = std.fs.openFileAbsolute(file_path, .{.mode = .read_only}) catch {
@@ -94,6 +115,9 @@ pub fn parse(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void
         std.process.abort();
         return;
     };
+
+
+    allocator.free(file_path);
 
     try file.seekFromEnd(0);
 
@@ -109,10 +133,21 @@ pub fn parse(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void
     try file.seekTo(0);
 
     const read_count = try file.readAll(source);
+    file.close();
+
+    profiler.endTimer("File Read");
 
     assertf(read_count == length, "Failed to read the whole file! {d} != {d}", .{read_count, length});
 
-    std.debug.print("{s}", .{source});
+    profiler.beginTimer();
 
-    _ = try parser.parseHaversinePairs(allocator, source);
+    const parsed_coordinates = try parser.parseHaversinePairs(allocator, source);
+    defer parsed_coordinates.deinit();
+
+    profiler.endTimer("Parsing");
+
+    try profiler.endProfiling();
+
+    allocator.free(source);
+
 }
