@@ -1,5 +1,6 @@
 const haversine = @import("../haversine/haversine.zig");
 const std = @import("std");
+const profiler = @import("../profiler/profiler.zig");
 
 pub const TokenType = enum(u16) {
     none            = 0,
@@ -279,6 +280,7 @@ pub const Parser = struct {
 
     pub fn parseCoordinates(self: *Parser, allocator: std.mem.Allocator) ParseError!std.ArrayList(haversine.Coordinates) {
 
+
         for (&begin_tokens) |*t|  {
             if (self.curr_token.type == t.type and std.mem.eql(u8, self.curr_token.string, t.string)) {
                 self.nextToken();
@@ -286,6 +288,9 @@ pub const Parser = struct {
             }
             return ParseError.UnexpectedToken;
         }
+
+        var array_block = profiler.beginBlock("Parse array");
+        defer array_block.endBlock();
 
         var coords: std.ArrayList(haversine.Coordinates) = undefined;
 

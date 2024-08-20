@@ -106,7 +106,7 @@ pub fn parse(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void
 
     profiler.beginProfiling();
 
-    profiler.beginTimer();
+    var file_block = profiler.beginBlock("File read");
 
     const file_path: []const u8 = try std.fs.cwd().realpathAlloc(allocator, input_json.?);
 
@@ -135,18 +135,20 @@ pub fn parse(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void
     const read_count = try file.readAll(source);
     file.close();
 
-    profiler.endTimer("File Read");
-
     assertf(read_count == length, "Failed to read the whole file! {d} != {d}", .{read_count, length});
 
-    profiler.beginTimer();
+    file_block.endBlock();
+
+    var parsing_block = profiler.beginBlock("Parsing");
 
     const parsed_coordinates = try parser.parseHaversinePairs(allocator, source);
-    defer parsed_coordinates.deinit();
 
-    profiler.endTimer("Parsing");
+    parsing_block.endBlock();
 
     try profiler.endProfiling();
+
+    defer parsed_coordinates.deinit();
+
 
     allocator.free(source);
 
