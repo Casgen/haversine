@@ -74,14 +74,20 @@ pub fn beginBlock(comptime label: []const u8) ProfileBlock {
 pub fn endProfiling() !void {
 
     const total_end = timer.rdtsc();
-    const total_elapsed = total_end - profiler.tsc_start;
+    const total_elapsed: u64 = total_end - profiler.tsc_start;
 
     assertm(profiler.has_profiing_started, "You haven't started profiling!");
 
     const cpu_freq = estimateCPUFreq();
     const std_out = std.io.getStdOut().writer();
 
-    try std_out.print("Total Time - CPU: {d} ms\n", .{1000 * @as(f64, @floatFromInt(total_elapsed)) / @as(f64, @floatFromInt(cpu_freq))});
+    const total_cpu_ms = 1000 * @as(f64, @floatFromInt(total_elapsed)) / @as(f64, @floatFromInt(cpu_freq));
+
+    try std_out.print("Total Time - CPU: {d} ms\n", .{total_cpu_ms});
+
+    var unprofiled_cpu_ms: f64 = total_cpu_ms;
+    var unprofiled_tsc_elapsed: u64 = total_elapsed;
+    var unprofiled_portion: f64 = 1.0;
     
     for (0..profiler.anchors.len) |i| {
 
@@ -89,13 +95,21 @@ pub fn endProfiling() !void {
 
             const anchor = &profiler.anchors[i];
 
-            const cpu_timing: f64 = 1000 * @as(f64,@floatFromInt(anchor.tsc_elapsed - anchor.tsc_children)) / @as(f64,@floatFromInt(cpu_freq));
-            const portion: f64 = @as(f64,@floatFromInt(anchor.tsc_elapsed - anchor.tsc_children)) / @as(f64,@floatFromInt(total_elapsed));
+            const anchor_tsc_elapsed = anchor.tsc_elapsed - anchor.tsc_children;
 
-            try std_out.print("\t{s} | Elapsed: {d} ms ({d} cycles) ({d} %)\n", .{anchor.label, cpu_timing, anchor.tsc_elapsed, 100.0 * portion});
+            const anchor_cpu_ms: f64 = 1000 * @as(f64, @floatFromInt(anchor_tsc_elapsed)) / @as(f64, @floatFromInt(cpu_freq));
+            const anchor_portion: f64 = @as(f64, @floatFromInt(anchor_tsc_elapsed)) / @as(f64, @floatFromInt(total_elapsed));
+
+            try std_out.print("\t{s} | Elapsed: {d} ms ({d} cycles) ({d} %)\n", .{anchor.label, anchor_cpu_ms, anchor_tsc_elapsed, 100.0 * anchor_portion});
+
+            unprofiled_cpu_ms -= anchor_cpu_ms;
+            unprofiled_tsc_elapsed -= anchor_tsc_elapsed;
+            unprofiled_portion -= anchor_portion;
         }
 
     }
+
+    try std_out.print("\n\tUnprofiled | Elapsed {d} ms ({d} cycles) ({d} %)", .{unprofiled_cpu_ms, unprofiled_tsc_elapsed, unprofiled_portion * 100.0});
 
 }
 

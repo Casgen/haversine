@@ -129,6 +129,7 @@ pub fn parse(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void
             return;
         }
     };
+    defer allocator.free(source);
 
     try file.seekTo(0);
 
@@ -141,15 +142,16 @@ pub fn parse(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void
 
     var parsing_block = profiler.beginBlock("Parsing");
 
-    const parsed_coordinates = try parser.parseHaversinePairs(allocator, source);
+    const pairs = try haversine.parseHaversinePairs(allocator, source);
+    defer allocator.free(pairs);
+
+    for (pairs) |*pair| {
+        try std.io.getStdOut().writer().print("Haversine Pair: {}\n", .{pair});
+    }
 
     parsing_block.endBlock();
 
     try profiler.endProfiling();
 
-    defer parsed_coordinates.deinit();
-
-
-    allocator.free(source);
 
 }
