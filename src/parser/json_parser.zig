@@ -90,6 +90,9 @@ pub const Parser = struct {
     }
 
     pub fn parseJsonArray(self: *Parser, allocator: std.mem.Allocator, label: []const u8) ParseError!JsonElement {
+        const idx = struct { var curr: u64 = 0;};
+        const block = profiler.beginBlock("Parse Array", &idx.curr);
+        defer block.end();
 
         try expectType(self.curr_token.type, TokenType.left_bracket);
 
@@ -140,6 +143,10 @@ pub const Parser = struct {
     }
 
     pub fn parseJsonObject(self: *Parser, allocator: std.mem.Allocator, label: []const u8) ParseError!JsonElement {
+
+        const idx = struct { var curr: u64 = 0;};
+        const block = profiler.beginBlock("Parse Object", &idx.curr);
+        defer block.end();
 
         try expectType(self.curr_token.type, TokenType.left_brace);
 

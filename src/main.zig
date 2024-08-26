@@ -106,7 +106,8 @@ pub fn parse(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void
 
     profiler.beginProfiling();
 
-    var file_block = profiler.beginBlock("File read");
+    const idx = struct {var curr: u64 = 0;};
+    const file_block = profiler.beginBlock("File read", &idx.curr);
 
     const file_path: []const u8 = try std.fs.cwd().realpathAlloc(allocator, input_json.?);
 
@@ -138,20 +139,16 @@ pub fn parse(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void
 
     assertf(read_count == length, "Failed to read the whole file! {d} != {d}", .{read_count, length});
 
-    file_block.endBlock();
+    file_block.end();
 
-    var parsing_block = profiler.beginBlock("Parsing");
+    const idx2 = struct {var curr: u64 = 0;};
+    const parsing_block = profiler.beginBlock("Parsing", &idx2.curr);
 
     const pairs = try haversine.parseHaversinePairs(allocator, source);
     defer allocator.free(pairs);
 
-    for (pairs) |*pair| {
-        try std.io.getStdOut().writer().print("Haversine Pair: {}\n", .{pair});
-    }
-
-    parsing_block.endBlock();
+    parsing_block.end();
 
     try profiler.endProfiling();
-
 
 }

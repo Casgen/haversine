@@ -49,8 +49,9 @@ pub fn parseHaversinePairs(allocator: std.mem.Allocator, source: []u8)  Haversin
     var json = try json_parser.parseJson(allocator);
     defer json.deinit(allocator);
 
-    var block = profiler.beginBlock("Validation");
-    defer block.endBlock();
+    const idx = struct { var curr: u64 = 0;};
+    const block = profiler.beginBlock("Validation", &idx.curr);
+    defer block.end();
 
     var pair_array = std.ArrayList(Coordinates).init(allocator);
     defer pair_array.deinit();

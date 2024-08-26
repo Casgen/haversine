@@ -7,6 +7,7 @@ pub const os_timer_freq: u64 = 1000000;
 const max_anchors: u32 = 64;
 
 const ProfileAnchor = struct {
+    tsc_elapsed_root: u64 = 0,
     tsc_elapsed: u64 = 0,
     tsc_children: u64 = 0,
     label: []const u8 = "",
@@ -24,27 +25,36 @@ const Profiler = struct {
 var profiler = Profiler{};
 var g_parent_id: u64 = 0;
 var anchor_counter: u64 = 0;
+const is_profiling_on: bool = true;
 
 const ProfileBlock = struct {
     tsc_start: u64 = 0,
+    tsc_old_elapsed_root: u64 = 0,
     anchor_id: u64 = 0,
     parent_id: u64 = 0,
     label: []const u8 = "",
 
+    pub fn end(self: *const ProfileBlock) void {
 
-    pub fn endBlock(self: *ProfileBlock) void {
+        switch (is_profiling_on) {
+            inline true => {
+                const tsc_end = timer.rdtsc();
+                const elapsed = tsc_end - self.tsc_start;
 
-        const end = timer.rdtsc();
+                g_parent_id = self.parent_id;
 
-        g_parent_id = self.parent_id;
+                const anchor = &profiler.anchors[self.anchor_id];
 
-        const elapsed = end - self.tsc_start;
-
-        profiler.anchors[g_parent_id].tsc_children += elapsed;
-        profiler.anchors[self.anchor_id].tsc_elapsed += elapsed;
-        profiler.anchors[self.anchor_id].label = self.label;
+                anchor.tsc_elapsed += elapsed;
+                anchor.tsc_elapsed_root = self.tsc_old_elapsed_root + elapsed;
+                anchor.label = self.label;
+                profiler.anchors[g_parent_id].tsc_children += elapsed;
+            },
+            inline false => {},
+        }
 
     }
+
 };
 
 
@@ -53,63 +63,95 @@ pub fn beginProfiling() void {
     profiler.tsc_start = timer.rdtsc();
 }
 
-pub fn beginBlock(comptime label: []const u8) ProfileBlock {
-    anchor_counter += 1;
-    std.debug.assert(anchor_counter < profiler.anchors.len);
+/// Starts up a profile block.
+/// @param - Arbitrary label
+/// @param - Anchor ID. THIS ONE IS SPECIFICALLY IMPORTANT. YOU CANNOT PASS JUST A REGULAR POINTER TO A NUMBER
+/// Please use a static local variable to initialize a number before calling this function and pass the number's pointer
+/// into the Anchor ID param!
+/// 
+/// for ex.
+/// `const idx = struct { var curr: u64 = 0;};`
+/// `const file_read = beginBlock("File Read", &idx.curr);`
+pub fn beginBlock(comptime label: []const u8, idx: *u64) ProfileBlock {
 
-    var block: ProfileBlock = .{};
+    switch (is_profiling_on) {
+        inline true => {
+            if (idx.* == 0) {
+                anchor_counter += 1;
+                idx.* = anchor_counter;
+            }
 
-    block.parent_id = g_parent_id;
-    block.anchor_id = anchor_counter;
-    block.label = label;
+            var block = ProfileBlock{
+                .label = label,
+                .anchor_id = idx.*,
+                .parent_id = g_parent_id,
+                .tsc_old_elapsed_root = profiler.anchors[idx.*].tsc_elapsed_root
+            };
 
-    g_parent_id = block.anchor_id;
+            g_parent_id = idx.*;
 
-    block.tsc_start = timer.rdtsc();
-    return block;
+            block.tsc_start = timer.rdtsc();
+            return block;
+        },
+        inline false => return .{},
+    }
+
 }
-
 
 
 pub fn endProfiling() !void {
 
     const total_end = timer.rdtsc();
-    const total_elapsed: u64 = total_end - profiler.tsc_start;
+    
+    const total_tsc_elapsed: u64 = total_end - profiler.tsc_start;
 
     assertm(profiler.has_profiing_started, "You haven't started profiling!");
 
     const cpu_freq = estimateCPUFreq();
     const std_out = std.io.getStdOut().writer();
 
-    const total_cpu_ms = 1000 * @as(f64, @floatFromInt(total_elapsed)) / @as(f64, @floatFromInt(cpu_freq));
+    const total_cpu_ms = 1000 * @as(f64, @floatFromInt(total_tsc_elapsed)) / @as(f64, @floatFromInt(cpu_freq));
 
     try std_out.print("Total Time - CPU: {d} ms\n", .{total_cpu_ms});
 
-    var unprofiled_cpu_ms: f64 = total_cpu_ms;
-    var unprofiled_tsc_elapsed: u64 = total_elapsed;
-    var unprofiled_portion: f64 = 1.0;
-    
-    for (0..profiler.anchors.len) |i| {
+    switch (is_profiling_on) {
+        inline true => {
+            var unprofiled_cpu_ms: f64 = total_cpu_ms;
+            var unprofiled_tsc_elapsed: u64 = total_tsc_elapsed;
+            var unprofiled_portion: f64 = 1.0;
+            
+            for (0..profiler.anchors.len) |i| {
 
-        if (profiler.anchors[i].tsc_elapsed > 0) {
+                if (profiler.anchors[i].tsc_elapsed > 0) {
 
-            const anchor = &profiler.anchors[i];
+                    const anchor = &profiler.anchors[i];
 
-            const anchor_tsc_elapsed = anchor.tsc_elapsed - anchor.tsc_children;
+                    const anchor_tsc_elapsed = anchor.tsc_elapsed - anchor.tsc_children;
 
-            const anchor_cpu_ms: f64 = 1000 * @as(f64, @floatFromInt(anchor_tsc_elapsed)) / @as(f64, @floatFromInt(cpu_freq));
-            const anchor_portion: f64 = @as(f64, @floatFromInt(anchor_tsc_elapsed)) / @as(f64, @floatFromInt(total_elapsed));
+                    const anchor_cpu_ms: f64 = 1000 * @as(f64, @floatFromInt(anchor_tsc_elapsed)) / @as(f64, @floatFromInt(cpu_freq));
+                    const anchor_portion: f64 = @as(f64, @floatFromInt(anchor_tsc_elapsed)) / @as(f64, @floatFromInt(total_tsc_elapsed));
 
-            try std_out.print("\t{s} | Elapsed: {d} ms ({d} cycles) ({d} %)\n", .{anchor.label, anchor_cpu_ms, anchor_tsc_elapsed, 100.0 * anchor_portion});
+                    try std_out.print("\t{s} | Elapsed: {d} ms ({d} cycles) ({d} %", .{anchor.label, anchor_cpu_ms, anchor_tsc_elapsed, 100.0 * anchor_portion});
 
-            unprofiled_cpu_ms -= anchor_cpu_ms;
-            unprofiled_tsc_elapsed -= anchor_tsc_elapsed;
-            unprofiled_portion -= anchor_portion;
-        }
+                    if (anchor.tsc_elapsed_root != anchor_tsc_elapsed) {
+                        try std_out.print(", {d} % w/children", .{100.0 * @as(f64, @floatFromInt(anchor.tsc_elapsed_root)) / @as(f64, @floatFromInt(total_tsc_elapsed))});
+                    }
 
+                    _ = try std_out.write(")\n");
+
+                    unprofiled_cpu_ms -= anchor_cpu_ms;
+                    unprofiled_tsc_elapsed -= anchor_tsc_elapsed;
+                    unprofiled_portion -= anchor_portion;
+                }
+
+            }
+
+            try std_out.print("\n\tUnprofiled | Elapsed {d} ms ({d} cycles) ({d} %)\n", .{unprofiled_cpu_ms, unprofiled_tsc_elapsed, unprofiled_portion * 100.0});
+
+        },
+        inline false => {},
     }
 
-    try std_out.print("\n\tUnprofiled | Elapsed {d} ms ({d} cycles) ({d} %)", .{unprofiled_cpu_ms, unprofiled_tsc_elapsed, unprofiled_portion * 100.0});
 
 }
 
